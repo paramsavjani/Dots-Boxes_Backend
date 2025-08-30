@@ -3,6 +3,6 @@ import { onlineUsers } from "../controllers/user.controller.js";
 
 const router = Router();
 
-router.route("/onlineUsers").post(verifyJWT, onlineUsers);
+router.route("/onlineUsers").get(onlineUsers);
 
 export default router;
