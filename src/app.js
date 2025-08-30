@@ -51,7 +51,6 @@ io.use((socket, next) => {
   if (!sessionId) {
     return next(new Error("Session ID is required"));
   }
-  console.log(sessionId);
   socket.sessionId = sessionId;
   next();
 });
@@ -61,13 +60,10 @@ io.on("connection", (socket) => {
 
   socket.on("join", async (username) => {
     const user = { socketId: socket.id, username, sessionId: socket.sessionId };
-    console.log("usernaem is this ",username)
     if (await redisClient.hGet("onlineUsers", socket.sessionId)) {
       console.log(`User ${username} is already online`);
       return;
     }
-
-    console.log(await redisClient.hGetAll("onlineUsers"));
 
     io.emit("userJoined", { socketId: socket.id, username });
     await redisClient.hSet(
