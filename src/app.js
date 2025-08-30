@@ -47,38 +47,59 @@ const io = new Server(httpServer, {
 });
 
 io.use((socket, next) => {
-  const username = socket.handshake.query.username;
-  if (!username) {
-    return next(new Error("Username is required"));
+  const sessionId = socket.handshake.query.sessionId;
+  if (!sessionId) {
+    return next(new Error("Session ID is required"));
   }
-  socket.username = username;
+  console.log(sessionId);
+  socket.sessionId = sessionId;
   next();
 });
 
 io.on("connection", (socket) => {
-  console.log("New client connected:", socket.id);
+  console.log("New client connected:", socket.sessionId);
 
   socket.on("join", async (username) => {
-    const user = { id: socket.id, username };
+    const user = { socketId: socket.id, username, sessionId: socket.sessionId };
+    console.log("usernaem is this ",username)
+    if (await redisClient.hGet("onlineUsers", socket.sessionId)) {
+      console.log(`User ${username} is already online`);
+      return;
+    }
 
-    await redisClient.hSet("onlineUsers", socket.username, JSON.stringify(user));
+    console.log(await redisClient.hGetAll("onlineUsers"));
 
-    console.log(`${socket.username} joined!`);
+    io.emit("userJoined", { socketId: socket.id, username });
+    await redisClient.hSet(
+      "onlineUsers",
+      socket.sessionId,
+      JSON.stringify(user)
+    );
 
-    io.emit("userJoined", user);
+    io.emit(
+      "onlineUsers",
+      Object.values(await redisClient.hGetAll("onlineUsers")).map((userStr) =>
+        JSON.parse(userStr)
+      )
+    );
   });
 
   socket.on("disconnect", async () => {
-    const userStr = await redisClient.hGet("onlineUsers", socket.username);
+    const userStr = await redisClient.hGet("onlineUsers", socket.sessionId);
 
     if (userStr) {
       const user = JSON.parse(userStr);
 
-      await redisClient.hDel("onlineUsers", socket.username);
+      await redisClient.hDel("onlineUsers", socket.sessionId);
 
       console.log(`${user.username} left!`);
 
-      io.emit("userLeft", user);
+      io.emit(
+        "onlineUsers",
+        Object.values(await redisClient.hGetAll("onlineUsers")).map((userStr) =>
+          JSON.parse(userStr)
+        )
+      );
     }
   });
 });

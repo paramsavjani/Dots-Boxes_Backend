@@ -8,12 +8,18 @@ const onlineUsers = asyncHandler(async (req, res) => {
 
 const checkUsername = asyncHandler(async (req, res) => {
   const { username } = req.body;
+  // return res.status(200).json({ message: "Username is available" });
   if (!username) {
     return res.status(400).json({ message: "Username is required" });
   }
-  const existingUser = await redisClient.hGet("onlineUsers", username);
-  console.log(await redisClient.hGetAll("onlineUsers"));
-  if (!existingUser) {
+  const onlineUsers = await redisClient.hGetAll("onlineUsers");
+  console.log(onlineUsers)
+  const existingUser = Object.values(onlineUsers).filter((userStr) => {
+    const user = JSON.parse(userStr);
+    return user.username === username;
+  });
+  console.log(existingUser)
+  if (existingUser.length === 0) {
     return res.status(200).json({ message: "Username is available" });
   }
   res.status(404).json({ message: "Username not found" });
