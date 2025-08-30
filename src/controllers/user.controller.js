@@ -12,6 +12,7 @@ const checkUsername = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Username is required" });
   }
   const existingUser = await redisClient.hGet("onlineUsers", username);
+  console.log(await redisClient.hGetAll("onlineUsers"));
   if (!existingUser) {
     return res.status(200).json({ message: "Username is available" });
   }
