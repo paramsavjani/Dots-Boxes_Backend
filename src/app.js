@@ -46,26 +46,35 @@ const io = new Server(httpServer, {
   },
 });
 
+io.use((socket, next) => {
+  const username = socket.handshake.query.username;
+  if (!username) {
+    return next(new Error("Username is required"));
+  }
+  socket.username = username;
+  next();
+});
+
 io.on("connection", (socket) => {
   console.log("New client connected:", socket.id);
 
   socket.on("join", async (username) => {
     const user = { id: socket.id, username };
 
-    await redisClient.hSet("onlineUsers", socket.id, JSON.stringify(user));
+    await redisClient.hSet("onlineUsers", socket.username, JSON.stringify(user));
 
-    console.log(`${username} joined!`);
+    console.log(`${socket.username} joined!`);
 
     io.emit("userJoined", user);
   });
 
   socket.on("disconnect", async () => {
-    const userStr = await redisClient.hGet("onlineUsers", socket.id);
+    const userStr = await redisClient.hGet("onlineUsers", socket.username);
 
     if (userStr) {
       const user = JSON.parse(userStr);
 
-      await redisClient.hDel("onlineUsers", socket.id);
+      await redisClient.hDel("onlineUsers", socket.username);
 
       console.log(`${user.username} left!`);
 
