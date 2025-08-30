@@ -19,7 +19,7 @@ const checkUsername = asyncHandler(async (req, res) => {
   if (existingUser.length === 0) {
     return res.status(200).json({ message: "Username is available" });
   }
-  res.status(404).json({ message: "Username not found" });
+  res.status(404).json({ message: "Username is already taken" });
 });
 
 export { onlineUsers, checkUsername };

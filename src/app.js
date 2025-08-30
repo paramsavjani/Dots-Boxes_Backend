@@ -56,16 +56,12 @@ io.use((socket, next) => {
 });
 
 io.on("connection", (socket) => {
-  console.log("New client connected:", socket.sessionId);
-
+  
   socket.on("join", async (username) => {
     const user = { socketId: socket.id, username, sessionId: socket.sessionId };
-    if (await redisClient.hGet("onlineUsers", socket.sessionId)) {
-      console.log(`User ${username} is already online`);
-      return;
-    }
-
-    io.emit("userJoined", { socketId: socket.id, username });
+    console.log("New client connected:", username);
+    console.log(await redisClient.hGetAll("onlineUsers"));
+    
     await redisClient.hSet(
       "onlineUsers",
       socket.sessionId,
