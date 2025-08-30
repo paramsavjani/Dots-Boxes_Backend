@@ -76,6 +76,11 @@ io.on("connection", (socket) => {
     );
   });
 
+  socket.on("sendFriendRequest", async (socketId) => {
+    const sentUser = await redisClient.hGet("onlineUsers", socket.sessionId);
+    io.to(socketId).emit("receiveFriendRequest", JSON.parse(sentUser).username);
+  });
+
   socket.on("disconnect", async () => {
     const userStr = await redisClient.hGet("onlineUsers", socket.sessionId);
 
