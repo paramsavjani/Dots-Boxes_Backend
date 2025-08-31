@@ -47,7 +47,7 @@ const io = new Server(httpServer, {
 });
 
 io.use((socket, next) => {
-  const sessionId = socket.handshake.query.sessionId;
+  const sessionId = socket.handshake.auth.sessionId;
   if (!sessionId) {
     return next(new Error("Session ID is required"));
   }
@@ -58,7 +58,7 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   socket.on("join", async (username) => {
     const user = { socketId: socket.id, username, sessionId: socket.sessionId };
-    console.log("New client connected:", username);
+    console.log("New client connected:", socket.sessionId);
 
     await redisClient.hSet(
       "onlineUsers",
