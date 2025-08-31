@@ -49,7 +49,7 @@ const io = new Server(httpServer, {
 
 io.use((socket, next) => {
   const sessionId = socket.handshake.auth.sessionId;
-  if (!sessionId) {
+  if (!sessionId || sessionId === "") {
     return next(new Error("Session ID is required"));
   }
   socket.sessionId = sessionId;
@@ -57,6 +57,7 @@ io.use((socket, next) => {
 });
 
 io.on("connection", (socket) => {
+  const sessionId = socket.sessionId;
   socket.on("join", async (username) => {
     const user = { socketId: socket.id, username, sessionId: socket.sessionId };
     console.log("New client connected:", socket.sessionId);
@@ -128,19 +129,28 @@ io.on("connection", (socket) => {
     const roomId = uuidv4();
 
     await redisClient.set(`user:${sender.sessionId}`, roomId);
-    await redisClient.expire(`user:${sender.sessionId}`, 60 * 30);
     await redisClient.set(`user:${receiver.sessionId}`, roomId);
-    await redisClient.expire(`user:${receiver.sessionId}`, 60 * 30);
     await redisClient.hSet(`room:${roomId}`, {
       players: JSON.stringify([sender.sessionId, receiver.sessionId]),
       status: "running",
     });
-    await redisClient.expire(`room:${roomId}`, 60 * 30);
-
     socket.join(roomId);
     io.sockets.sockets.get(receiver.socketId)?.join(roomId);
 
-    io.to(roomId).emit("gameStart", { roomId });
+    io.to(roomId).emit("gameStart");
+  });
+
+  socket.on("checkActiveRoom", async () => {
+    if (socket.sessionId) {
+      const roomId = await redisClient.get(`user:${socket.sessionId}`);
+      const user = await redisClient.hGet("onlineUsers", socket.sessionId);
+      const userData = JSON.parse(user);
+      if (roomId && userData) {
+        socket.join(roomId);
+        io.to(userData.socketId).emit("activeRoom", roomId);
+      }
+    }
+    console.log("no active room");
   });
 
   socket.on("disconnect", async () => {
