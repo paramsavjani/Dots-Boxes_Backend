@@ -5,6 +5,7 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { redisClient } from "./index.js";
+import { v4 as uuidv4 } from "uuid";
 
 const app = express();
 
@@ -115,22 +116,31 @@ io.on("connection", (socket) => {
     }
 
     const sentKey = `friendRequests:sent:${socket.sessionId}`;
+    const sentKey2 = `friendRequests:sent:${toSessionId}`;
     const receivedKey = `friendRequests:received:${toSessionId}`;
+    const receivedKey2 = `friendRequests:received:${socket.sessionId}`;
 
-    await redisClient.sRem(
-      sentKey,
-      JSON.stringify({ from: toSessionId, to: socket.sessionId })
-    );
-    await redisClient.sRem(
-      receivedKey,
-      JSON.stringify({ from: toSessionId, to: socket.sessionId })
-    );
+    await redisClient.del(sentKey);
+    await redisClient.del(receivedKey);
+    await redisClient.del(sentKey2);
+    await redisClient.del(receivedKey2);
 
-    console.log(
-      `${receiver.username} accepted friend request from ${sender.username}`
-    );
+    const roomId = uuidv4();
 
-    io.to(receiver.socketId).emit("friendRequestAccepted", receiver.sessionId);
+    await redisClient.set(`user:${sender.sessionId}`, roomId);
+    await redisClient.expire(`user:${sender.sessionId}`, 60 * 30);
+    await redisClient.set(`user:${receiver.sessionId}`, roomId);
+    await redisClient.expire(`user:${receiver.sessionId}`, 60 * 30);
+    await redisClient.hSet(`room:${roomId}`, {
+      players: JSON.stringify([sender.sessionId, receiver.sessionId]),
+      status: "running",
+    });
+    await redisClient.expire(`room:${roomId}`, 60 * 30);
+
+    socket.join(roomId);
+    io.sockets.sockets.get(receiver.socketId)?.join(roomId);
+
+    io.to(roomId).emit("gameStart", { roomId });
   });
 
   socket.on("disconnect", async () => {
