@@ -23,4 +23,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: yourusername/your-backend:latest
+          tags: param3010/game:latest
