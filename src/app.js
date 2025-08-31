@@ -105,6 +105,34 @@ io.on("connection", (socket) => {
     io.to(receiver.socketId).emit("receiveFriendRequest", req);
   });
 
+  socket.on("friendRequestAccepted", async (toSessionId) => {
+    const receiverData = await redisClient.hGet("onlineUsers", toSessionId);
+    const receiver = JSON.parse(receiverData);
+    const senderData = await redisClient.hGet("onlineUsers", socket.sessionId);
+    const sender = JSON.parse(senderData);
+    if (!receiver || !sender) {
+      return;
+    }
+
+    const sentKey = `friendRequests:sent:${socket.sessionId}`;
+    const receivedKey = `friendRequests:received:${toSessionId}`;
+
+    await redisClient.sRem(
+      sentKey,
+      JSON.stringify({ from: toSessionId, to: socket.sessionId })
+    );
+    await redisClient.sRem(
+      receivedKey,
+      JSON.stringify({ from: toSessionId, to: socket.sessionId })
+    );
+
+    console.log(
+      `${receiver.username} accepted friend request from ${sender.username}`
+    );
+
+    io.to(receiver.socketId).emit("friendRequestAccepted", receiver.sessionId);
+  });
+
   socket.on("disconnect", async () => {
     const userStr = await redisClient.hGet("onlineUsers", socket.sessionId);
 
