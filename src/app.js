@@ -56,12 +56,10 @@ io.use((socket, next) => {
 });
 
 io.on("connection", (socket) => {
-  
   socket.on("join", async (username) => {
     const user = { socketId: socket.id, username, sessionId: socket.sessionId };
     console.log("New client connected:", username);
-    console.log(await redisClient.hGetAll("onlineUsers"));
-    
+
     await redisClient.hSet(
       "onlineUsers",
       socket.sessionId,
@@ -76,9 +74,35 @@ io.on("connection", (socket) => {
     );
   });
 
-  socket.on("sendFriendRequest", async (socketId) => {
-    const sentUser = await redisClient.hGet("onlineUsers", socket.sessionId);
-    io.to(socketId).emit("receiveFriendRequest", JSON.parse(sentUser).username);
+  socket.on("sendFriendRequest", async (toSessionId) => {
+    const senderData = await redisClient.hGet("onlineUsers", socket.sessionId);
+    const sender = JSON.parse(senderData);
+    const receiverData = await redisClient.hGet("onlineUsers", toSessionId);
+    const receiver = JSON.parse(receiverData);
+    if (!receiver) {
+      return;
+    }
+
+    const sentKey = `friendRequests:sent:${sender.sessionId}`;
+    const receivedKey = `friendRequests:received:${toSessionId}`;
+
+    const requestData = JSON.stringify({
+      from: sender.sessionId,
+      to: toSessionId,
+    });
+
+    await redisClient.sAdd(sentKey, requestData);
+    await redisClient.sAdd(receivedKey, requestData);
+    await redisClient.expire(sentKey, 5 * 60);
+    await redisClient.expire(receivedKey, 5 * 60);
+
+    console.log(
+      `Friend request sent from ${sender.username} to ${toSessionId}`
+    );
+
+    const req = { from: sender.sessionId, to: "me" };
+
+    io.to(receiver.socketId).emit("receiveFriendRequest", req);
   });
 
   socket.on("disconnect", async () => {

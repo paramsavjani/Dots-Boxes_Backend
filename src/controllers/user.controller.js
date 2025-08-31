@@ -22,4 +22,33 @@ const checkUsername = asyncHandler(async (req, res) => {
   res.status(404).json({ message: "Username is already taken" });
 });
 
-export { onlineUsers, checkUsername };
+const getRequests = asyncHandler(async (req, res) => {
+  const { sessionId } = req.body;
+
+  const sentKey = `friendRequests:sent:${sessionId}`;
+  const receivedKey = `friendRequests:received:${sessionId}`;
+
+  const sentRequests = await redisClient.sMembers(sentKey);
+  const receivedRequests = await redisClient.sMembers(receivedKey);
+  const sent = sentRequests.map((r) => {
+    const data = JSON.parse(r);
+    return {
+      from: "me",
+      to: data.to,
+    };
+  });
+
+  const received = receivedRequests.map((r) => {
+    const data = JSON.parse(r);
+    return {
+      from: data.from,
+      to: "me",
+    };
+  });
+
+  const allRequests = [...sent, ...received];
+
+  res.status(200).json(allRequests);
+});
+
+export { onlineUsers, checkUsername, getRequests };
