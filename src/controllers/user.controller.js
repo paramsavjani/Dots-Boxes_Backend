@@ -2,7 +2,8 @@ import asyncHandler from "../utils/asyncHandler.js";
 import { redisClient } from "../index.js";
 
 const onlineUsers = asyncHandler(async (req, res) => {
-  const users = await redisClient.hGetAll("onlineUsers");
+  const keys = await redisClient.keys("onlineUser:*");
+  const users = await Promise.all(keys.map((k) => redisClient.get(k)));
   res.json(Object.values(users).map((user) => JSON.parse(user)));
 });
 
@@ -11,8 +12,10 @@ const checkUsername = asyncHandler(async (req, res) => {
   if (!username) {
     return res.status(400).json({ message: "Username is required" });
   }
-  const onlineUsers = await redisClient.hGetAll("onlineUsers");
-  const existingUser = Object.values(onlineUsers).filter((userStr) => {
+  const keys = await redisClient.keys("user:*");
+  const users = await Promise.all(keys.map((k) => redisClient.get(k)));
+  console.log(users);
+  const existingUser = Object.values(users).filter((userStr) => {
     const user = JSON.parse(userStr);
     return user.username === username;
   });

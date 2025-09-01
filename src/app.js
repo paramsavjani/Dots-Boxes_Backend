@@ -57,29 +57,33 @@ io.use((socket, next) => {
 });
 
 io.on("connection", (socket) => {
-  const sessionId = socket.sessionId;
   socket.on("join", async (username) => {
     const user = { socketId: socket.id, username, sessionId: socket.sessionId };
     console.log("New client connected:", socket.sessionId);
 
-    await redisClient.hSet(
-      "onlineUsers",
-      socket.sessionId,
-      JSON.stringify(user)
+    await redisClient.set(`user:${socket.sessionId}`, JSON.stringify(user), {
+      EX: 30 * 60,
+    });
+
+    await redisClient.set(
+      `onlineUser:${socket.sessionId}`,
+      JSON.stringify(user),
+      { EX: 30 * 60 }
     );
+
+    const keys = await redisClient.keys("onlineUser:*");
+    const users = await Promise.all(keys.map((k) => redisClient.get(k)));
 
     io.emit(
       "onlineUsers",
-      Object.values(await redisClient.hGetAll("onlineUsers")).map((userStr) =>
-        JSON.parse(userStr)
-      )
+      Object.values(users).map((userStr) => JSON.parse(userStr))
     );
   });
 
   socket.on("sendFriendRequest", async (toSessionId) => {
-    const senderData = await redisClient.hGet("onlineUsers", socket.sessionId);
+    const senderData = await redisClient.get(`user:${socket.sessionId}`);
     const sender = JSON.parse(senderData);
-    const receiverData = await redisClient.hGet("onlineUsers", toSessionId);
+    const receiverData = await redisClient.get(`user:${toSessionId}`);
     const receiver = JSON.parse(receiverData);
     if (!receiver) {
       return;
@@ -99,7 +103,7 @@ io.on("connection", (socket) => {
     await redisClient.expire(receivedKey, 5 * 60);
 
     console.log(
-      `Friend request sent from ${sender.username} to ${toSessionId}`
+      `Friend request sent from ${sender.username} to ${receiver.username}`
     );
 
     const req = { from: sender.sessionId, to: "me" };
@@ -108,9 +112,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("friendRequestAccepted", async (toSessionId) => {
-    const receiverData = await redisClient.hGet("onlineUsers", toSessionId);
+    const receiverData = await redisClient.get(`user:${toSessionId}`);
     const receiver = JSON.parse(receiverData);
-    const senderData = await redisClient.hGet("onlineUsers", socket.sessionId);
+    const senderData = await redisClient.get(`user:${socket.sessionId}`);
     const sender = JSON.parse(senderData);
     if (!receiver || !sender) {
       return;
@@ -121,6 +125,15 @@ io.on("connection", (socket) => {
     const receivedKey = `friendRequests:received:${toSessionId}`;
     const receivedKey2 = `friendRequests:received:${socket.sessionId}`;
 
+    await redisClient.del(`onlineUser:${toSessionId}`);
+    const keys = await redisClient.keys("onlineUser:*");
+    const users = await Promise.all(keys.map((k) => redisClient.get(k)));
+
+    io.emit(
+      "onlineUsers",
+      Object.values(users).map((userStr) => JSON.parse(userStr))
+    );
+
     await redisClient.del(sentKey);
     await redisClient.del(receivedKey);
     await redisClient.del(sentKey2);
@@ -128,8 +141,8 @@ io.on("connection", (socket) => {
 
     const roomId = uuidv4();
 
-    await redisClient.set(`user:${sender.sessionId}`, roomId);
-    await redisClient.set(`user:${receiver.sessionId}`, roomId);
+    await redisClient.set(`activeUser:${sender.sessionId}`, roomId);
+    await redisClient.set(`activeUser:${receiver.sessionId}`, roomId);
     await redisClient.hSet(`room:${roomId}`, {
       players: JSON.stringify([sender.sessionId, receiver.sessionId]),
       status: "running",
@@ -142,8 +155,8 @@ io.on("connection", (socket) => {
 
   socket.on("checkActiveRoom", async () => {
     if (socket.sessionId) {
-      const roomId = await redisClient.get(`user:${socket.sessionId}`);
-      const user = await redisClient.hGet("onlineUsers", socket.sessionId);
+      const roomId = await redisClient.get(`activeUser:${socket.sessionId}`);
+      const user = await redisClient.get(`user:${socket.sessionId}`);
       const userData = JSON.parse(user);
       if (roomId && userData) {
         socket.join(roomId);
@@ -153,23 +166,27 @@ io.on("connection", (socket) => {
     console.log("no active room");
   });
 
+  socket.on("leave", async () => {
+    await redisClient.del(`onlineUser:${socket.sessionId}`);
+    await redisClient.del(`user:${socket.sessionId}`);
+    await redisClient.del(`friendRequests:sent:${socket.sessionId}`);
+    await redisClient.del(`friendRequests:received:${socket.sessionId}`);
+  });
+
   socket.on("disconnect", async () => {
-    const userStr = await redisClient.hGet("onlineUsers", socket.sessionId);
+    const userStr = await redisClient.get(`user:${socket.sessionId}`);
+    const user = JSON.parse(userStr);
 
-    if (userStr) {
-      const user = JSON.parse(userStr);
+    console.log(`${user.username} left!`);
 
-      await redisClient.hDel("onlineUsers", socket.sessionId);
+    await redisClient.del(`onlineUser:${socket.sessionId}`);
+    const keys = await redisClient.keys("onlineUser:*");
+    const users = await Promise.all(keys.map((k) => redisClient.get(k)));
 
-      console.log(`${user.username} left!`);
-
-      io.emit(
-        "onlineUsers",
-        Object.values(await redisClient.hGetAll("onlineUsers")).map((userStr) =>
-          JSON.parse(userStr)
-        )
-      );
-    }
+    io.emit(
+      "onlineUsers",
+      Object.values(users).map((userStr) => JSON.parse(userStr))
+    );
   });
 });
 
