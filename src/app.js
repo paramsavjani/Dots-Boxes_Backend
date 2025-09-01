@@ -135,7 +135,14 @@ const areAdjacent = (pos1, pos2) => {
   return (rowDiff === 1 && colDiff === 0) || (rowDiff === 0 && colDiff === 1);
 };
 
-const initializeGameState = (roomId, player1SessionId, player2SessionId) => {
+const initializeGameState = async (
+  roomId,
+  player1SessionId,
+  player2SessionId
+) => {
+  const user1 = JSON.parse(await redisClient.get(`user:${player1SessionId}`));
+  const user2 = JSON.parse(await redisClient.get(`user:${player2SessionId}`));
+
   return {
     roomId,
     connections: [],
@@ -149,12 +156,12 @@ const initializeGameState = (roomId, player1SessionId, player2SessionId) => {
     players: {
       player1: {
         id: player1SessionId,
-        name: "Player 1",
+        name: user1.username,
         connected: true,
       },
       player2: {
         id: player2SessionId,
-        name: "Player 2",
+        name: user2.username,
         connected: true,
       },
     },
@@ -177,12 +184,14 @@ io.on("connection", async (socket) => {
   let userData = JSON.parse(user);
   if (userData) {
     userData.socketId = socket.id;
-    await redisClient.set(`user:${socket.sessionId}`, JSON.stringify(userData));
+    await redisClient.set(`user:${socket.sessionId}`, JSON.stringify(userData), {
+      EX: 30 * 60,
+    });
   }
 
   socket.on("join", async (username) => {
     const user = { socketId: socket.id, username, sessionId: socket.sessionId };
-    console.log("New client connected:", socket.sessionId);
+    console.log("New client connected:", user.username);
 
     await redisClient.set(`user:${socket.sessionId}`, JSON.stringify(user), {
       EX: 30 * 60,
@@ -264,11 +273,15 @@ io.on("connection", async (socket) => {
 
     const roomId = uuidv4();
 
-    await redisClient.set(`activeUser:${sender.sessionId}`, roomId);
-    await redisClient.set(`activeUser:${receiver.sessionId}`, roomId);
+    await redisClient.set(`activeUser:${sender.sessionId}`, roomId, {
+      EX: 60 * 60,
+    });
+    await redisClient.set(`activeUser:${receiver.sessionId}`, roomId, {
+      EX: 60 * 60,
+    });
 
     // Initialize game state
-    const gameState = initializeGameState(
+    const gameState = await initializeGameState(
       roomId,
       sender.sessionId,
       receiver.sessionId
@@ -445,6 +458,14 @@ io.on("connection", async (socket) => {
     await redisClient.set(`gameState:${roomId}`, JSON.stringify(gameState), {
       EX: 60 * 60,
     });
+  });
+
+  socket.on("leaveGame", async () => {
+    const roomId = await redisClient.get(`activeUser:${socket.sessionId}`);
+    socket.leave(roomId);
+    await redisClient.del(`activeUser:${socket.sessionId}`);
+    await redisClient.del(`gameState:${roomId}`);
+    io.to(roomId).emit("userLeft", socket.sessionId);
   });
 
   socket.on("leave", async () => {
