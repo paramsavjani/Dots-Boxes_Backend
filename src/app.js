@@ -56,7 +56,13 @@ io.use((socket, next) => {
   next();
 });
 
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
+  const user = await redisClient.get(`user:${socket.sessionId}`);
+  let userData = JSON.parse(user);
+  if (userData) {
+    userData.socketId = socket.id;
+    await redisClient.set(`user:${socket.sessionId}`, JSON.stringify(userData));
+  }
   socket.on("join", async (username) => {
     const user = { socketId: socket.id, username, sessionId: socket.sessionId };
     console.log("New client connected:", socket.sessionId);
@@ -160,10 +166,10 @@ io.on("connection", (socket) => {
       const userData = JSON.parse(user);
       if (roomId && userData) {
         socket.join(roomId);
+        console.log("active room found:", roomId);
         io.to(userData.socketId).emit("activeRoom", roomId);
       }
     }
-    console.log("no active room");
   });
 
   socket.on("leave", async () => {
