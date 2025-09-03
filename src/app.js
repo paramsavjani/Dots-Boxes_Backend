@@ -51,8 +51,8 @@ const io = new Server(httpServer, {
 const checkCompletedSquares = (connections) => {
   const completed = [];
 
-  for (let row = 0; row < 4; row++) {
-    for (let col = 0; col < 4; col++) {
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 5; col++) {
       const topLeft = { row, col };
       const topRight = { row, col: col + 1 };
       const bottomLeft = { row: row + 1, col };
