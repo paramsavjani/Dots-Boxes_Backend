@@ -24,3 +24,7 @@ jobs:
           context: .
           push: true
           tags: param3010/game:latest
+          build-args: |
+            PORT=${{ secrets.PORT }}
+            REDIS_HOST=${{ secrets.REDIS_HOST }}
+            REDIS_PORT=${{ secrets.REDIS_PORT}}
