@@ -47,7 +47,7 @@ const io = new Server(httpServer, {
   },
 });
 
-// Game Helper Functions
+
 const checkCompletedSquares = (connections) => {
   const completed = [];
 
@@ -280,7 +280,7 @@ io.on("connection", async (socket) => {
       EX: 60 * 60,
     });
 
-    // Initialize game state
+    
     const gameState = await initializeGameState(
       roomId,
       sender.sessionId,
@@ -314,12 +314,12 @@ io.on("connection", async (socket) => {
         socket.join(roomId);
         console.log("active room found:", roomId);
 
-        // Get game state and send to client
+        
         const gameStateStr = await redisClient.get(`gameState:${roomId}`);
         if (gameStateStr) {
           const gameState = JSON.parse(gameStateStr);
 
-          // Determine player role
+          
           const playerRole =
             gameState.players.player1.id === socket.sessionId
               ? "player1"
@@ -337,17 +337,17 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // New Game Events
+  
   socket.on("joinGameRoom", async (roomId) => {
     if (roomId) {
       socket.join(roomId);
 
-      // Get and send current game state
+      
       const gameStateStr = await redisClient.get(`gameState:${roomId}`);
       if (gameStateStr) {
         const gameState = JSON.parse(gameStateStr);
 
-        // Determine player role
+        
         const playerRole =
           gameState.players.player1.id === socket.sessionId
             ? "player1"
@@ -362,7 +362,7 @@ io.on("connection", async (socket) => {
   socket.on("makeMove", async (moveData) => {
     const { roomId, from, to, player } = moveData;
 
-    // Get current game state
+    
     const gameStateStr = await redisClient.get(`gameState:${roomId}`);
     if (!gameStateStr) {
       socket.emit("error", "Game not found");
@@ -371,7 +371,7 @@ io.on("connection", async (socket) => {
 
     const gameState = JSON.parse(gameStateStr);
 
-    // Validate move
+    
     if (gameState.gameStatus !== "playing") {
       socket.emit("error", "Game is not active");
       return;
@@ -392,7 +392,7 @@ io.on("connection", async (socket) => {
       return;
     }
 
-    // Make the move
+    
     const newConnection = {
       from,
       to,
@@ -403,11 +403,11 @@ io.on("connection", async (socket) => {
     gameState.connections.push(newConnection);
     gameState.lastMove = Date.now();
 
-    // Check for completed squares
+    
     const previousSquares = gameState.completedSquares.slice();
     const allCompletedSquares = checkCompletedSquares(gameState.connections);
 
-    // Find newly completed squares
+    
     const newCompletedSquares = allCompletedSquares.filter(
       (newSquare) =>
         !previousSquares.some(
@@ -417,23 +417,23 @@ io.on("connection", async (socket) => {
         )
     );
 
-    // Add player info to newly completed squares
+    
     newCompletedSquares.forEach((square) => {
       square.player = player;
     });
 
     gameState.completedSquares = [...previousSquares, ...newCompletedSquares];
 
-    // Update scores
+    
     gameState.scores[player] += newCompletedSquares.length;
 
-    // Switch player only if no squares were completed
+    
     if (newCompletedSquares.length === 0) {
       gameState.currentPlayer =
         gameState.currentPlayer === "player1" ? "player2" : "player1";
     }
 
-    // Check if game is over (all 16 squares completed)
+    
     if (gameState.completedSquares.length === 16) {
       gameState.gameStatus = "finished";
 
@@ -445,7 +445,7 @@ io.on("connection", async (socket) => {
         gameState.winner = "tie";
       }
 
-      // Clean up active users
+      
       await redisClient.del(`activeUser:${gameState.players.player1.id}`);
       await redisClient.del(`activeUser:${gameState.players.player2.id}`);
 
@@ -454,7 +454,7 @@ io.on("connection", async (socket) => {
       io.to(roomId).emit("connectionMade", gameState);
     }
 
-    // Save updated game state
+    
     await redisClient.set(`gameState:${roomId}`, JSON.stringify(gameState), {
       EX: 60 * 60,
     });
