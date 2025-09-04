@@ -7,7 +7,10 @@ import { httpServer } from "./app.js";
 const PORT = process.env.PORT || 9000;
 
 const redisClient = createClient({
-  url: process.env.REDIS_URL || "redis://127.0.0.1:6379",
+  socket: {
+    host: process.env.REDIS_HOST || "localhost",
+    port: process.env.REDIS_PORT || 6379,
+  },
 });
 
 export { redisClient };
