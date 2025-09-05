@@ -47,12 +47,12 @@ const io = new Server(httpServer, {
   },
 });
 
-
-const checkCompletedSquares = (connections) => {
+const checkCompletedSquares = (connections, gridSize = 6) => {
   const completed = [];
+  const cells = gridSize - 1;
 
-  for (let row = 0; row < 5; row++) {
-    for (let col = 0; col < 5; col++) {
+  for (let row = 0; row < cells; row++) {
+    for (let col = 0; col < cells; col++) {
       const topLeft = { row, col };
       const topRight = { row, col: col + 1 };
       const bottomLeft = { row: row + 1, col };
@@ -152,7 +152,7 @@ const initializeGameState = async (
       player1: 0,
       player2: 0,
     },
-    gameStatus: "playing",
+    gameStatus: "gridSelection", // Start with grid selection
     players: {
       player1: {
         id: player1SessionId,
@@ -165,6 +165,8 @@ const initializeGameState = async (
         connected: true,
       },
     },
+    gridSize: null, // Will be set when a player chooses
+    gridSelectedBy: null,
     createdAt: Date.now(),
     lastMove: Date.now(),
   };
@@ -181,12 +183,16 @@ io.use((socket, next) => {
 
 io.on("connection", async (socket) => {
   const user = await redisClient.get(`user:${socket.sessionId}`);
-  let userData = JSON.parse(user);
+  const userData = JSON.parse(user);
   if (userData) {
     userData.socketId = socket.id;
-    await redisClient.set(`user:${socket.sessionId}`, JSON.stringify(userData), {
-      EX: 30 * 60,
-    });
+    await redisClient.set(
+      `user:${socket.sessionId}`,
+      JSON.stringify(userData),
+      {
+        EX: 30 * 60,
+      }
+    );
   }
 
   socket.on("join", async (username) => {
@@ -280,7 +286,6 @@ io.on("connection", async (socket) => {
       EX: 60 * 60,
     });
 
-    
     const gameState = await initializeGameState(
       roomId,
       sender.sessionId,
@@ -302,6 +307,7 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("checkActiveRoom", async () => {
+    console.log("Checking active room for:", socket.sessionId);
     if (socket.sessionId) {
       const roomId = await redisClient.get(`activeUser:${socket.sessionId}`);
       if (!roomId) {
@@ -314,12 +320,10 @@ io.on("connection", async (socket) => {
         socket.join(roomId);
         console.log("active room found:", roomId);
 
-        
         const gameStateStr = await redisClient.get(`gameState:${roomId}`);
         if (gameStateStr) {
           const gameState = JSON.parse(gameStateStr);
 
-          
           const playerRole =
             gameState.players.player1.id === socket.sessionId
               ? "player1"
@@ -337,17 +341,14 @@ io.on("connection", async (socket) => {
     }
   });
 
-  
   socket.on("joinGameRoom", async (roomId) => {
     if (roomId) {
       socket.join(roomId);
 
-      
       const gameStateStr = await redisClient.get(`gameState:${roomId}`);
       if (gameStateStr) {
         const gameState = JSON.parse(gameStateStr);
 
-        
         const playerRole =
           gameState.players.player1.id === socket.sessionId
             ? "player1"
@@ -359,10 +360,9 @@ io.on("connection", async (socket) => {
     }
   });
 
-  socket.on("makeMove", async (moveData) => {
-    const { roomId, from, to, player } = moveData;
+  socket.on("selectGridSize", async (data) => {
+    const { roomId, gridSize, player } = data;
 
-    
     const gameStateStr = await redisClient.get(`gameState:${roomId}`);
     if (!gameStateStr) {
       socket.emit("error", "Game not found");
@@ -371,7 +371,47 @@ io.on("connection", async (socket) => {
 
     const gameState = JSON.parse(gameStateStr);
 
-    
+    if (gameState.gameStatus !== "gridSelection") {
+      socket.emit("error", "Grid selection phase is over");
+      return;
+    }
+
+    if (gameState.gridSelectedBy) {
+      socket.emit("error", "Grid size already selected");
+      return;
+    }
+
+    // Validate grid size
+    if (![4, 5, 6, 7, 8].includes(gridSize)) {
+      socket.emit("error", "Invalid grid size");
+      return;
+    }
+
+    // Set grid size and start the game
+    gameState.gridSize = gridSize;
+    gameState.gridSelectedBy = player;
+    gameState.gameStatus = "playing";
+
+    // Save updated game state
+    await redisClient.set(`gameState:${roomId}`, JSON.stringify(gameState), {
+      EX: 60 * 60,
+    });
+
+    // Notify all players in the room
+    io.to(roomId).emit("gridSizeSelected", gameState);
+  });
+
+  socket.on("makeMove", async (moveData) => {
+    const { roomId, from, to, player } = moveData;
+
+    const gameStateStr = await redisClient.get(`gameState:${roomId}`);
+    if (!gameStateStr) {
+      socket.emit("error", "Game not found");
+      return;
+    }
+
+    const gameState = JSON.parse(gameStateStr);
+
     if (gameState.gameStatus !== "playing") {
       socket.emit("error", "Game is not active");
       return;
@@ -392,7 +432,6 @@ io.on("connection", async (socket) => {
       return;
     }
 
-    
     const newConnection = {
       from,
       to,
@@ -403,11 +442,12 @@ io.on("connection", async (socket) => {
     gameState.connections.push(newConnection);
     gameState.lastMove = Date.now();
 
-    
     const previousSquares = gameState.completedSquares.slice();
-    const allCompletedSquares = checkCompletedSquares(gameState.connections);
+    const allCompletedSquares = checkCompletedSquares(
+      gameState.connections,
+      gameState.gridSize
+    );
 
-    
     const newCompletedSquares = allCompletedSquares.filter(
       (newSquare) =>
         !previousSquares.some(
@@ -417,24 +457,21 @@ io.on("connection", async (socket) => {
         )
     );
 
-    
     newCompletedSquares.forEach((square) => {
       square.player = player;
     });
 
     gameState.completedSquares = [...previousSquares, ...newCompletedSquares];
 
-    
     gameState.scores[player] += newCompletedSquares.length;
 
-    
     if (newCompletedSquares.length === 0) {
       gameState.currentPlayer =
         gameState.currentPlayer === "player1" ? "player2" : "player1";
     }
 
-    
-    if (gameState.completedSquares.length === 16) {
+    const totalSquares = (gameState.gridSize - 1) * (gameState.gridSize - 1);
+    if (gameState.completedSquares.length === totalSquares) {
       gameState.gameStatus = "finished";
 
       if (gameState.scores.player1 > gameState.scores.player2) {
@@ -445,7 +482,6 @@ io.on("connection", async (socket) => {
         gameState.winner = "tie";
       }
 
-      
       await redisClient.del(`activeUser:${gameState.players.player1.id}`);
       await redisClient.del(`activeUser:${gameState.players.player2.id}`);
 
@@ -454,7 +490,6 @@ io.on("connection", async (socket) => {
       io.to(roomId).emit("connectionMade", gameState);
     }
 
-    
     await redisClient.set(`gameState:${roomId}`, JSON.stringify(gameState), {
       EX: 60 * 60,
     });
